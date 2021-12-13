@@ -34,6 +34,14 @@ enum class Role {
   MEMBER = 1
 };
 
+string role_to_str(Role r) {
+  if (r == Role::LEAD) {
+    return "LEAD";
+  } else {
+    return "MEMBER";
+  }
+}
+
 // print Role number
 ostream& operator<< (ostream& os, const Role& r)
 {
@@ -169,7 +177,34 @@ class Issue {
     void setTimeToComplete(int i) {
       time_to_complete = i;
     }
-    void print();
+    
+    void print() {
+      //convert priority to text
+      string prio;
+      if (priority == 1)
+      prio = "Low";
+      else if (priority == 2)
+      prio = "Medium";
+      else
+      prio = "High";
+      //convert completion to text
+      string comp;
+      if (complete)
+      comp = "Yes";
+      else
+      comp = "No";
+      
+      //print info
+      cout << "ISSUE " << id << endl;
+      cout << "type: " << type << endl;
+      cout << "Date Added: " << date_added << endl;
+      cout << "Est. Days to Fix: " << work_days << endl;
+      cout << "Priority: " << prio << endl;
+      cout << "Description: " << desc << endl;
+      cout << "Complete? " << comp << endl;
+      cout << "Assigned By " << assignee->getUsername();
+      cout << " To " << reporter->getUsername();
+    }
     
     // compare by priority
     friend bool operator>(const Issue& lhs, const Issue& rhs) {
@@ -265,10 +300,11 @@ class Project {
   private:
     string name; // name of project
     User * current_user; // current user working on the project
-    Sprint * current_sprint;
+    Sprint * current_sprint; // current sprint
     map<User*, Role> roles; // users and user roles
     vector<Issue*> to_do; // to-do list of issues, sorted by highest priority first
     vector<Issue*> work_done; // list of issues that are finished
+    vector<Issue*> all_issues; // list of all issues in the project
     vector<Sprint*> sprints; // list of sprints in order from earliest creation time
     int next_issue_id; // next issue id
     int num_leads = 0; // number of leaders
@@ -283,13 +319,14 @@ class Project {
       num_leads++;
     }
     
-    Project(string project_name, map<User*, Role> users, vector<Issue*> issues, vector<Issue*> completed, vector<Sprint*> s, int nid) {
+    Project(string project_name, map<User*, Role> users, vector<Issue*> backlog, vector<Issue*> completed, vector<Sprint*> s, vector<Issue*> allissues, int nid) {
       name = project_name;
       roles = users;
-      to_do = issues;
+      to_do = backlog;
       work_done = completed;
       sprints = s;
       next_issue_id = nid;
+      all_issues = allissues;
       sort(to_do.begin(), to_do.end(), greater<>());
       //Counts the amount of leads in the project
       for (auto const& x : roles) {
@@ -323,6 +360,9 @@ class Project {
     const vector<Issue*>& getWorkDone() {
       return work_done;
     }
+    const vector<Issue*>& getAllIssues() {
+      return all_issues;
+    }
     const map<User*, Role> getUsers() {
       return roles;
     }
@@ -335,11 +375,9 @@ class Project {
     void setName(string pname) {
       name = pname;
     }
-    
     void setCurrentUser(User* u) {
       current_user = u;
     }
-    
     void setUsers(map<User*, Role> u) {
       roles = u;
     }
@@ -389,8 +427,46 @@ class Project {
       i->setID(next_issue_id);
       to_do.push_back(i);
       sort(to_do.begin(), to_do.end(), greater<>());
+      all_issues.push_back(i);
       next_issue_id++;
       return true;
+    }
+
+    // Remove issue from backlog
+    bool remove_issue(Issue * i) {
+      bool erased = false; // have we erased anything?
+
+      // erase from backlog
+      for (int c = 0; c < to_do.size(); c++) {
+        if (to_do.at(c)->getID() == i->getID()) {
+          to_do.erase(to_do.begin()+c);
+          erased = true;
+          break;
+        }
+      }
+
+      // erase from sprints
+      for (Sprint * s : sprints) {
+        vector<Issue*> si = s->getIssues();
+        for (int c = 0; c < si.size(); c++) {
+          if (i->getID() == si[c]->getID()) {
+            si.erase(si.begin()+c);
+            erased = true;
+            break;
+          }
+        }
+      }
+
+      // erase from work done 
+      for (int c = 0; c < work_done.size(); c++) {
+        if (work_done.at(c)->getID() == i->getID()) {
+          work_done.erase(work_done.begin()+c);
+          erased = true;
+          break;
+        }
+      }
+      
+      return erased;
     }
 
     // Add all backlog issues to current sprint
@@ -435,8 +511,10 @@ class Project {
         for (Issue* i : current_issues) {
           if (!i->isComplete()) {
             unfinished.push_back(i);
+            i->setTimeToComplete(i->getTimeToComplete()-7);
           } else {
             finished.push_back(i);
+            i->setTimeToComplete(i->getTimeToComplete()-7);
           }
         }
         // add unfinished issues to backlog
