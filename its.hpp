@@ -2,11 +2,10 @@
 // 11 December 2021
 // C++ Final Project - Issue tracking system
 
-#pragma once
-
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <iostream>
 #include <bits/stdc++.h>
 #include <map>
 
@@ -14,19 +13,33 @@ using namespace std;
 
 // Enumerate types of issues
 enum class IssueType {
-  US, 
-  TASK, 
-  BUILD, 
-  TEST, 
-  DEBUG,
-  DOC
+  US = 0, 
+  TASK = 1, 
+  BUILD = 2, 
+  TEST = 3, 
+  DEBUG = 4,
+  DOC = 5
 };
+
+// print IssueType number
+ostream& operator<< (ostream& os, const IssueType& it)
+{
+   os << static_cast<underlying_type<IssueType>::type>(it);
+   return os;
+}
 
 // Enumerate user roles in project
 enum class Role {
-  LEAD,
-  MEMBER
+  LEAD = 0,
+  MEMBER = 1
 };
+
+// print Role number
+ostream& operator<< (ostream& os, const Role& r)
+{
+   os << static_cast<underlying_type<Role>::type>(r);
+   return os;
+}
 
 // Represent a user
 class User {
@@ -52,6 +65,10 @@ class User {
     friend bool operator<(User& lhs, User& rhs) {
       return lhs.username < rhs.username;
     }
+
+    friend bool operator==(User& lhs, User& rhs) {
+      return lhs.username == rhs.username;
+    }
 };
 
 // Represent an issue containing data about the issue
@@ -60,15 +77,16 @@ class Issue {
     int id; // id number
     IssueType type; // the type of issue
     string date_added; // the date the issue was created
-    int time_to_complete; //estimated time of completion
+    int time_to_complete; // estimated time of completion
     int priority; // (1-3) priority of the issue to be resolved
-    string desc; // description of the issue
+    string desc; // description of the issue (one line)
     bool complete; // is the issue resolved?
     User * reporter; // who is working on this issue?
     User * assignee; // who assigned this issue?
   public:
-    //Constructor & Destructor
+    // Constructor & Destructor
     Issue() {}
+
     // Constructor without ID
     Issue(IssueType t, string date, int work_days, int prio, string description, User * assignedTo, User * assignedBy) {
       time_to_complete = work_days;
@@ -80,18 +98,20 @@ class Issue {
       assignee = assignedBy;
       complete = false;
     }
-    // Constructor with ID
-    Issue(IssueType t, string date, int work_days, int prio, string description, User * assignedTo, User * assignedBy, int i) {
-        time_to_complete = work_days;
-        type = t;
-        date_added = date;
-        priority = prio;
-        desc = description;
-        reporter = assignedTo;
-        assignee = assignedBy;
-        complete = false;
-        id = i;
+
+    // Constructor with all fields
+    Issue(int i, IssueType t, string date, int work_days, int prio, string description, bool comp, User * assignedTo, User * assignedBy) {
+      id = i;
+      time_to_complete = work_days;
+      type = t;
+      date_added = date;
+      priority = prio;
+      desc = description;
+      reporter = assignedTo;
+      assignee = assignedBy;
+      complete = comp;
     }
+    
     ~Issue() {}
       
     //Getters & Setters
@@ -110,10 +130,10 @@ class Issue {
     const int getID() {
       return id;
     }
-    const User* getReporter() {
+    User* getReporter() {
       return reporter;
     }
-    const User* getAssignee() {
+    User* getAssignee() {
       return assignee;
     }
     const bool isComplete() {
@@ -152,8 +172,13 @@ class Issue {
     void print();
     
     // compare by priority
+    friend bool operator>(const Issue& lhs, const Issue& rhs) {
+      return lhs.priority > rhs.priority;
+    }
+
+    // compare for map
     friend bool operator<(const Issue& lhs, const Issue& rhs) {
-      return lhs.priority < rhs.priority;
+      return lhs.id < rhs.id;
     }
 };
 
@@ -183,7 +208,13 @@ class Sprint {
       current_week = cw;
       finished = f;
     }
-    ~Sprint() {}
+    
+    ~Sprint() {
+      for (Issue* i : issues) {
+        delete i;
+      }
+    }
+
     //Getters & Setters
     const vector<Issue*>& getIssues() {
       return issues;
@@ -199,7 +230,7 @@ class Sprint {
     }
     void setIssues(vector<Issue*> i) {
       issues = i;
-      sort(issues.begin(),issues.end());
+      sort(issues.begin(),issues.end(), greater<>());
     }
     void setWeeks(int w) {
       weeks = w;
@@ -217,7 +248,7 @@ class Sprint {
     }
     void addIssue(Issue* i) {
       issues.push_back(i);
-      sort(issues.begin(),issues.end());
+      sort(issues.begin(), issues.end(), greater<>());
     }
     void removeIssue(Issue * i) {
       auto pos = find(issues.begin(), issues.end(), i);
@@ -240,20 +271,45 @@ class Project {
     vector<Issue*> work_done; // list of issues that are finished
     vector<Sprint*> sprints; // list of sprints in order from earliest creation time
     int next_issue_id; // next issue id
-    
+    int num_leads = 0; // number of leaders
   public:
     // Constructor & Destructor
     Project() {}
-    Project(string project_name, map<User*, Role>& users, vector<Issue*>& issues, vector<Issue*>& completed, vector<Sprint*>& s, int nid) {
+    Project(string project_name, User* u) {
+      name = project_name;
+      current_user = u;
+      next_issue_id = 0;
+      roles[u] = Role::LEAD;
+      num_leads++;
+    }
+    
+    Project(string project_name, map<User*, Role> users, vector<Issue*> issues, vector<Issue*> completed, vector<Sprint*> s, int nid) {
       name = project_name;
       roles = users;
       to_do = issues;
       work_done = completed;
       sprints = s;
       next_issue_id = nid;
-      to_do.sort(to_do.begin(), to_do.end());
+      sort(to_do.begin(), to_do.end(), greater<>());
+      //Counts the amount of leads in the project
+      for (auto const& x : roles) {
+        if (x.second == Role::LEAD) {
+          num_leads++;
+        }  
+      }
     }
-    ~Project() {}
+    ~Project() {
+      for (Issue* i : to_do) {
+        delete i;
+      }
+      for (Issue* i : work_done) {
+        
+      }
+      for (Sprint* s : sprints) {
+        delete s;
+      }
+    }
+    
     // Getters & Setters
     const string getName() {
       return name;
@@ -267,10 +323,15 @@ class Project {
     const vector<Issue*>& getWorkDone() {
       return work_done;
     }
+    const map<User*, Role> getUsers() {
+      return roles;
+    }
     const vector<Sprint*>& getInProgress() {
       return sprints;
     }
-
+    const int getNID() {
+      return next_issue_id;
+    }
     void setName(string pname) {
       name = pname;
     }
@@ -285,41 +346,41 @@ class Project {
 
     // (L) Remove collaborator, return whether remove was successful
     bool remove_collaborator(User* u) {
-      int counter;
-      //Counts the amount of leads in the project
-      for (auto const& x : roles) {
-        if (x.second = LEAD) {
-          counter++;
-        }  
-      }
       //Only allows leads to remove users
-      if (roles[current_user] != LEAD) {
+      if (roles[current_user] != Role::LEAD) {
         cout << "Insufficient Permissions." << endl;
         return false;
-      } else if (counter < 2) {
+      } else if (roles.count(u) == 0) {
+        cout << "User does not exist in this project" << endl;
+        return false;
+      } else if (num_leads == 1 && roles[u] == Role::LEAD) {
         cout << "Cannot remove only lead." << endl;
         return false;
       }
-      if (roles.count(u) != 0) {
-        roles.erase(u);
-        return true;
-      } else {
-        cout << "Collaborator not found." << endl;
-        return false;
+      // if this is a leader
+      if (roles[u] == Role::LEAD) {
+        num_leads--;
       }
+      roles.erase(u);
+      cout << "Removed collaborator " << u->getUsername() << "." << endl;
+      return true;
     }
     
     // (L) Add collaborator, return whether add was successful
-    bool add_collaborator(User * user, Role role) {
-      if (roles[current_user] != LEAD) { // insufficient permissions
+    bool add_collaborator(User * u, Role role) {
+      if (roles[current_user] != Role::LEAD) { // insufficient permissions
         cout << "Insufficient Permissions" << endl;
         return false;
       }
-      if (roles.count(user) == 1) { // collaborator already exists
+      if (roles.count(u) == 1) { // collaborator already exists
         cout << "Collaborator with that username already exists." << endl;
         return false;
       }
-      roles[user] = role; // add collaborator
+      roles[u] = role; // add collaborator
+      if (role == Role::LEAD) {
+        num_leads++;
+      }
+      cout << "Added collaborator " << u->getUsername() << "." << endl;
       return true;
     }
 
@@ -327,7 +388,7 @@ class Project {
     bool add_issue(Issue * i) {
       i->setID(next_issue_id);
       to_do.push_back(i);
-      sort(to_do.begin(),to_do.end());
+      sort(to_do.begin(), to_do.end(), greater<>());
       next_issue_id++;
       return true;
     }
@@ -338,13 +399,13 @@ class Project {
         return false;
       } else {
         for (Issue* i : to_do) {
-          i.setDescription(i.getDescription + "// Old id: " + i.getID());
-          i.setID(next_issue_id);
+          i->setDescription(i->getDescription() + "// Old id: " + to_string(i->getID()));
+          i->setID(next_issue_id);
           next_issue_id++;
         }
-        vector<Issue*> i = current_sprint->getIssues();
-        i.insert(i.end(), to_do.begin(), to_do.end());
-        current_sprint->setIssues(i);
+        vector<Issue*> is(current_sprint->getIssues());
+        is.insert(is.end(), to_do.begin(), to_do.end());
+        current_sprint->setIssues(is);
         to_do.clear();
         return true;
       }
@@ -361,47 +422,69 @@ class Project {
 
     // Increment the week, handle sprint issue transfer if a sprint finishes
     void step_one_week() {
+      if (current_sprint == NULL) {
+        return;
+      }
       current_sprint->increment_week();
       // if current sprint is finished
       if (current_sprint->isComplete()) {
         vector<Issue*> current_issues = current_sprint->getIssues();
         vector<Issue*> unfinished;
-        // remove unfinished issues from current sprint and add to backlog
-        for (auto it = current_issues.begin(); it != current_issues.end();) {
-          Issue* i = *it;
+        vector<Issue*> finished;
+        // add unfinished issues from current finished sprint and add to backlog
+        for (Issue* i : current_issues) {
           if (!i->isComplete()) {
             unfinished.push_back(i);
-            current_issues.erase(it);
           } else {
-            it++;
+            finished.push_back(i);
           }
         }
         // add unfinished issues to backlog
         to_do.insert(to_do.end(), unfinished.begin(), unfinished.end());
+        work_done.insert(work_done.end(), finished.begin(), finished.end());
         // update current sprint
         for (Sprint * s : sprints) {
-          if (!s->isFinished()) {
+          if (!s->isComplete()) {
             current_sprint = s;
             return;
           }
         }
         // if there is no other current sprint
         current_sprint = NULL;
+        sort(to_do.begin(), to_do.end(), greater<>());
+      }
+    }
+
+    // Get the role of a user
+    Role getRole(User * u) {
+      if (roles.count(u) == 0) {
+        throw 1; // user does not exist, should never get to this point
+      } else {
+        return roles[u];
       }
     }
 
     // (L) Update Role
     bool updateRole(User* u, Role role) {
-      if (roles.count(u) == 0) {
-        cout << "Given user does not exist in this project" << endl;
-        return false;
-      }
-      if (roles[current_user] == LEAD) {
-        roles[u] = role;
-        return true;
-      } else {
+      if (roles[current_user] != Role::LEAD) {
         cout << "Insufficient Permissions." << endl;
         return false;
-      }
+      } else if (roles.count(u) == 0) {
+        cout << "Given user does not exist in this project" << endl;
+        return false;
+      } else if (role == Role::MEMBER && roles[u] == Role::LEAD && num_leads == 1) {
+        // if we are trying to demote the only leader
+        cout << "Cannot demote the only project leader.";
+        return false;
+      } else {
+        if (role == Role::MEMBER && roles[u] == Role::LEAD) {
+          num_leads--;
+        } else if (role == Role::LEAD && roles[u] == Role::MEMBER) {
+          num_leads++;
+        }
+        roles[u] = role;
+        cout << "Role update successful." << endl;
+        return true;
+      } 
     }
 };
