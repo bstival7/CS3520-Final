@@ -8,274 +8,26 @@
 #include <fstream>
 #include <sstream>
 #include "its.hpp"
+#include "proj_io.hpp"
 #include <cstdlib>
+#include <ctime>
+#include <thread>
 
 using namespace std;
 
-// All users currently registered
-vector<User*> users;
 User * current_user; // current user
-Project * loaded_project; // loaded project (may not be opened by user)
 Project * p; // current project
-Issue * ci; //current issue
 
-// Get user pointer from username string
-User * getUser(string username) {
-  for (User * u : users) {
-    if (username == u->getUsername()) {
-      return u;
-    }
-  }
-  return NULL;
-}
-
-void load_project() {
-  //variables used for project constructor
-  string name;
-  map<User*, Role> roles;
-  vector<Issue*> to_do_list;
-  vector<Sprint*> sprint_list;
-  vector<Issue*> work_done_list;
-  vector<Issue*> all_issues;
-  int nid;
-  
-  //other variables
-  string line;
-  map<int, Issue*> issues;
-  
-  //get users1
-  ifstream input("data/" + to_string(i) + ".txt");
-  //get project name
-  getline(input, line);
-  if (line != "P%") {
-    throw 2; // corrupted file
-  }
-  getline(input, line);
-  name = line;
-
-  //get user data
-  getline(input, line);
-  if (line != "U%") {
-    throw 2; // corrupted file
-  }
-  while (true) {
-    getline(input, line);
-    if (line == "I%") {
-      break;
-    }
-
-    string username = line;
-    User * user = getUser(username);
-    getline(input, line);
-    Role role = static_cast<Role>(stoi(line));
-    
-    roles[user] = role;
-  }
-  
-  //get issues
-  while (true) {
-    getline(input, line);
-    if (line == "S%") {
-      break;
-    }
-    
-    int id = stoi(line);
-    
-    // other issue fields
-    IssueType type;
-    string da;
-    int ttc;
-    int pri;
-    string desc;
-    bool comp; 
-    User * rep;
-    User * ass;
-    
-    getline(input, line);
-    type = static_cast<IssueType>(stoi(line));
-    getline(input, line);
-    da = line;
-    getline(input, line);
-    ttc = stoi(line);
-    getline(input, line);
-    pri = stoi(line);
-    getline(input, line);
-    desc = line;
-    getline(input, line);
-    comp = stoi(line);
-    getline(input, line);
-    rep = getUser(line);
-    getline(input, line);
-    ass = getUser(line);
-    
-    Issue * is = new Issue(id, type, da, ttc, pri, desc, comp, rep, ass);
-    all_issues.push_back(is);
-    issues[id] = is;
-  }
-
-  //get sprints
-  while (true) {
-    getline(input, line);
-    if (line == "TD%") {
-      break;
-    }
-    vector<Issue*> issue_list;
-    int weeks;
-    int current_week;
-    bool finished;
-
-    //list of issues associated with a sprint
-    while (true) {
-      getline(input, line);
-      if (line == "W%") {
-        break;
-      }
-      int id = stoi(line);
-      issue_list.push_back(issues[id]);
-    }
-    getline(input, line);
-    weeks = stoi(line);
-    getline(input, line);
-    current_week = stoi(line);
-    getline(input, line);
-    finished = stoi(line);
-    Sprint* temp = new Sprint(issue_list,weeks,current_week,finished);
-    sprint_list.push_back(temp);
-  }
-
-  //get to_do
-  while (true) {
-    getline(input, line);
-    if (line == "WD%") {
-      break;
-    }
-    int id = stoi(line);
-    to_do_list.push_back(issues[id]);
-  }
-
-  while (true) {
-    getline(input, line);
-    if (line == "NID%") {
-      break;
-    }
-    int id = stoi(line);
-    work_done_list.push_back(issues[id]);
-  }
-  getline(input, line);
-  nid = stoi(line);
-
-  Project* pr = new Project(name, roles, to_do_list, work_done_list, sprint_list, all_issues, nid);
-  loaded_project = pr;
-}
-
-// Import users from users.txt and projects from projects.txt
-void import_data() {
-  ifstream u("data/users.txt");
-  string user;
-  while (getline(u, user)) {
-    users.push_back(new User(user));
-  }
-  u.close();
-  load_project();
-}
-
-// Save list of users registered
-void save_users() {
-  ofstream o("data/users.txt");
-  for (User * u : users) {
-    o << u->getUsername() << endl;
-  }
-  o.close();
-}
-
-// Save current project
-void save_project() {
-  stringstream ss;
-
-  map<User*, Role> roles = p->getUsers();
-  vector<Issue*> backlog = p->getToDo();
-  vector<Sprint*> sprints = p->getInProgress();
-  vector<Issue*> workdone = p->getWorkDone();
-
-  // compile every issue in the project into one map of issue id -> issue object
-  map<int, Issue*> issues;
-
-  // get issues from backlog
-  for (Issue* i : backlog) {
-    if (issues.count(i->getID()) == 0) {
-      issues[i->getID()] = i;
-    }
-  }
-
-  // get issues from sprint
-  for (Sprint* s : sprints) {
-    for (Issue* i : s->getIssues()) {
-      if (issues.count(i->getID()) == 0) {
-        issues[i->getID()] = i;
-      }
-    }
-  }
-
-  // get issues from work done
-  for (Issue* i : workdone) {
-    if (issues.count(i->getID()) == 0) {
-      issues[i->getID()] = i;
-    }
-  }
-
-  ss << "P%" << endl;
-  ss << p->getName() << endl;
-  ss << "U%" << endl;
-  for (auto u : roles) {
-    ss << u.first->getUsername() << endl;
-    ss << u.second << endl;
-  }
-  ss << "I%" << endl;
-  for (auto p : issues) {
-    int id = p.first;
-    Issue * i = p.second;
-    ss << id << endl;
-    ss << i->getType() << endl;
-    ss << i->getDateAdded() << endl;
-    ss << i->getTimeToComplete() << endl;
-    ss << i->getPriority() << endl;
-    ss << i->getDescription() << endl;
-    ss << i->isComplete() << endl;
-    ss << i->getReporter()->getUsername() << endl;
-    ss << i->getAssignee()->getUsername() << endl;
-  }
-  ss << "S%" << endl;
-  for (Sprint * s : sprints) {
-    for (Issue* i : s->getIssues()) {
-      ss << i->getID() << endl;
-    }
-    ss << "W%" << endl;
-    ss << s->getWeeks() << endl;
-    ss << s->getCurrentWeek() << endl;
-    ss << s->isComplete() << endl;
-  }
-  ss << "TD%" << endl;
-  for (Issue * i : backlog) {
-    ss << i->getID() << endl;
-  }
-  ss << "WD%" << endl;
-  for (Issue * i :workdone) {
-    ss << i->getID() << endl;
-  }
-  ss << "NID%" << endl << p->getNID();
-
-  ofstream o("data/proj.txt");
-  o << ss.rdbuf();
-  o.close();
-}
-
+// print list of issues
 void print_issues(vector<Issue*> iss) {
+  int num;
   for (int i = 0; i < iss.size(); i++) {
-    cout << i+1 << ". Issue " << iss[i]->getID();
+    num = i+1;
+    cout << num << ". Issue " << iss[i]->getID();
     if (iss[i]->isComplete()) {
-      cout << "[Resolved]" << endl;
+      cout << " [Resolved]" << endl;
     } else {
-      cout << "[Unresolved]" << endl;
+      cout << " [Unresolved]" << endl;
     }
   }
 }
@@ -339,58 +91,252 @@ void run_login() {
 // Print collaborators of project
 void print_collaborators() {
   map<User*, Role> roles = p->getUsers();
-  for (auto p : roles) {
-    cout << role_to_str(p.second) << ": ";
-    cout << p.first->getUsername();
+  for (auto x : roles) {
+    cout << role_to_str(x.second) << ": ";
+    cout << x.first->getUsername();
     cout << endl;
+  }
+}
+
+// Print and provide options to modify collaborators
+void view_update_collaborators() {
+  map<User*, Role> roles = p->getUsers();
+  vector<User*> us;
+  string role, username;
+  while (true) {
+    int i = 1;
+    for (auto const& x : roles) {
+      role = role_to_str(x.second);
+      username = x.first->getUsername();
+      cout << i 
+      << ". Edit role of [" << role 
+      << "]: " << username << endl;
+      us.push_back(x.first);
+      i++;
+    }
+
+    cout << i << ". " << "Add collaborator..." << endl;
+    i++;
+    cout << i << ". " << "Remove collaborator..." << endl;
+    i++;
+    cout << i << ". Return" << endl;
+    cout << "Enter an option number: ";
+    int option;
+    cin >> option;
+    if (option >= 1 && option <= us.size()) {
+      int rolenum;
+      cout << "Roles: " << endl;
+      cout << "1. LEAD" << endl;
+      cout << "2. MEMBER" << endl;
+      cout << "Enter role for new collaborator: ";
+      cin >> rolenum;
+      rolenum--;
+      Role role = static_cast<Role>(rolenum);
+      int selection = option-1;
+      p->updateRole(us[selection], role);
+      break;
+    } else if (option == i-2) { // add collaborator
+      string username;
+      cout << "Enter username of user to add: ";
+      cin >> username;
+      User * u = getUser(username);
+      if (u == NULL) {
+        cout << "Given username does not exist. Try again." << endl;
+        continue;
+      }
+      int rolenum;
+      cout << "Roles: " << endl;
+      cout << "1. LEAD" << endl;
+      cout << "2. MEMBER" << endl;
+      cout << "Enter role for new collaborator: ";
+      cin >> rolenum;
+      rolenum--;
+      Role role = static_cast<Role>(rolenum);
+      p->add_collaborator(u, role);
+      save_project(p);
+      break;
+    } else if (option == i-1) { // remove collaborator
+      string username;
+      cout << "Enter username of user to remove: ";
+      cin >> username;
+      User * u = getUser(username);
+      if (u == NULL) {
+        cout << "Given username does not exist. Try again." << endl;
+        continue;
+      }
+      p->remove_collaborator(u);
+      break;
+    } else if (option == i) {
+      return;
+    } else {
+      cout << "Incorrect output." << endl;
+    }
   }
 }
 
 // Script to modify an issue
 void run_modify_issue(Issue * i) {
   char choice;
-  /*
-  IssueType type; // the type of issue
-  string date_added; // the date the issue was created
-  int time_to_complete; // estimated time of completion
-  int priority; // (1-3) priority of the issue to be resolved
-  string desc; // description of the issue (one line)
-  bool complete; // is the issue resolved?
-  User * reporter; // who is working on this issue?
-  User * assignee; // who assigned this issue?
-  */
+  string user_input;
+  cout << "-------------------------" << endl;
   cout << "Select aspect to modify: " << endl;
   cout << "1. Type" << endl;
   cout << "2. Date Added" << endl;
-  cout << "3. Priority" << endl;
-  cout << "4. Description" << endl;
-  cout << "5. Completion" << endl;
-  cout << "6. Reporter" << endl;
-  cout << "7. Days to Complete" << endl;
-  cout << "8. Days to Complete" << endl;
+  cout << "3. Days to Complete" << endl;
+  cout << "4. Priority" << endl;
+  cout << "5. Description" << endl;
+  cout << "6. Completion" << endl;
+  cout << "7. Reporter" << endl;
+  cout << "8. Assignee" << endl;
+  cout << "Q. Quit" << endl;
+  cin >> choice;
+  switch (choice) {
+    case '1' : {
+      cout << "--------" << endl;
+      cout << "0. US" << endl;
+      cout << "1. TASK" << endl;
+      cout << "2. BUILD" << endl;
+      cout << "3. TEST" << endl;
+      cout << "4. DEBUG" << endl;
+      cout << "5. DOC" << endl;
+      cout << "--------" << endl;
+      cout << "Changing to...";
+      cin >> user_input;
+      int buffer = stoi(user_input);
+      if (buffer >= 0 && buffer <= 5) {
+        i -> setType(static_cast<IssueType>(buffer));
+      } else {
+        cout << "Invalid input." << endl;
+      }
+      break;
+    }
+    case '2' : {
+      cout << "Changing date to...";
+      cin >> user_input;
+      cout << endl;
+      i -> setDate(user_input);
+      break;
+    }
+    case '3' : {
+      cout << "Changing days to complete to...";
+      cin>>user_input;
+      cout << endl;
+      i -> setTimeToComplete(stoi(user_input));
+      break;
+    }
+    case '4' : {
+      cout << "Priorities: High, Medium, Low" << endl;
+      cout << "Changing priority to...";
+      cin >> user_input;
+      cout << endl;
+      if (user_input == "High") {
+        i->setPriority(3);
+      } else if (user_input == "Medium") {
+        i->setPriority(2);
+      } else if (user_input == "Low") {
+        i->setPriority(1);
+      } else {
+        cout << "Invalid input." << endl;
+      }
+      break;
+    }
+    case '5' : {
+      cin.ignore(numeric_limits<std::streamsize>::max(), '\n'); 
+      cout << "Change description to...";
+      getline(cin, user_input);
+      cout << endl;
+      i ->setDescription(user_input);
+      break;
+    }
+    case '6' : {
+      cout << "1. Resolved/2. Unresolved";
+      cout << "Changing completion to...";
+      cin >> user_input;
+      cout << endl;
+      if (user_input == "1") {
+        i->setCompletion(true);
+      } else if (user_input == "2") {
+        i->setCompletion(false);
+      } else {
+        cout << "Invalid input." << endl;
+      }
+      break;
+    }
+    case '7' : {
+      cout << "Assign this issue to... ";
+      cin >> user_input;
+      cout << endl;
+      bool user_exists = false;
+      User * u;
+      for (auto x : users) {
+        if (x -> getUsername() == user_input) {
+          user_exists = true;
+          u = x;
+        }
+      }
+      if (user_exists) {
+        i -> setReporter(u);
+      } else {
+        cout << "Username is invalid." << endl;
+      }
+      break;
+    }
+    case '8' : {
+      cout << "Changing assigner to... ";
+      cin >> user_input;
+      cout << endl;
+      bool user_exists = false;
+      User * u;
+      for (auto x : users) {
+        if (x -> getUsername() == user_input) {
+          user_exists = true;
+          u = x;
+        }
+      }
+      if (user_exists) {
+        i -> setAssignee(u);
+      } else {
+        cout << "Username is invalid." << endl;
+      }
+      break;
+    }
+    case 'Q' : {
+      return;
+    }
+  }
 }
 
 // Script to add an issue
 void run_add_issue() {
   int typenum;
+  IssueType type;
   string da;
   int ttc;
   int priority;
   string desc;
   User* reporter;
-
-  cout << "Issue types: " << endl;
-  cout << "1. User Story" << endl;
-  cout << "2. Task" << endl; 
-  cout << "3. Build" << endl; 
-  cout << "4. Test" << endl; 
-  cout << "5. Debug" << endl; 
-  cout << "6. Documentation" << endl; 
-  cout << "Enter issue type number: ";
-  cin >> typenum;
-  cout << "Enter date added: " << endl;
+  cout << "------------------------------------" << endl;
+  while (true) {
+    cout << "Issue types: " << endl;
+    cout << "1. User Story" << endl;
+    cout << "2. Task" << endl; 
+    cout << "3. Build" << endl; 
+    cout << "4. Test" << endl; 
+    cout << "5. Debug" << endl; 
+    cout << "6. Documentation" << endl; 
+    cout << "Enter issue type number: ";
+    cin >> typenum;
+    if (typenum < 1 || typenum > 6) {
+      cout << "Invalid option, try again." << endl;
+    } else {
+      type = static_cast<IssueType>(typenum-1);
+      break;
+    }
+  }
+ 
+  cout << "Enter date added: ";
   cin >> da;
-  cout << "Enter estimated number of days to resolve: " << endl;
+  cout << "Enter estimated number of days to resolve: ";
   cin >> ttc;
   while (true) {
     cout << "Enter priority: " << endl;
@@ -404,76 +350,386 @@ void run_add_issue() {
       break;
     }
   }
-  cout << "Enter description: " << endl;
+  cin.ignore(numeric_limits<std::streamsize>::max(), '\n'); 
+  cout << "Enter description: ";
   getline(cin, desc);
   while (true) {
-    string username;
-    cout << "Enter user to assign issue to: " << endl;
-    cin >> username;
-    User u* = getUser(username);
-    if (u == NULL) {
-      cout << "User does not exist. Try again."
+    int usernum;
+    cout << "Assign to whom? " << endl;
+    vector<User*> valid_users;
+    for (auto x : p->getUsers()) {
+      valid_users.push_back(x.first);
     }
-    if (p->getUsers().count())
+    for (int i = 1; i <= valid_users.size(); i++) {
+      cout << i << ". " + valid_users.at(i-1)->getUsername() << endl;
+    }
+    cout << "Enter number: ";
+    cin >> usernum;
+    if (usernum < 1 || usernum > valid_users.size()) {
+      cout << "Invalid option. Try again." << endl;
+    } else {
+      reporter = valid_users.at(usernum-1);
+      break;
+    }
   }
-  
-  
-  
+  //IssueType t, string date, int work_days, int prio, string description, User * assignedTo, User * assignedBy
+  Issue* newissue = new Issue(type, da, ttc, priority, desc, reporter, current_user);
+  p->add_issue(newissue);
+}
+
+// View and update backlog
+void view_update_backlog() {
+  int int_choice,cc,cthree,num;
+  vector<Issue*> backlog = p->getToDo();
+  cout << "------------------------------------" << endl;
+  cout << "1. View/Update Backlog" << endl;
+  cout << "2. Add Issue" << endl;
+  cout << "3. Add backlog to current sprint" << endl;
+  cin >> cthree;
+  if (cthree == 1) {
+    if (backlog.size() > 0) {
+      cout << "------------------------------------" << endl;
+      print_issues(backlog);
+      cout << "Select issue: ";
+      cin >> cc;
+      num=cc-1;
+      backlog[num]->print();
+      cout << "1. Modify" << endl;
+      cout << "2. Return" << endl;
+      cin >> int_choice;
+      if (int_choice == 1) {
+        run_modify_issue(backlog[num]);
+      } else if (int_choice == 2) {
+        return;
+      } else {
+        cout << "Invalid option." << endl;
+      }
+    } else {
+      cout << "No issues currently in backlog." << endl;
+    }
+  } else if (cthree == 2) {
+    run_add_issue();
+  } else if (cthree == 3) {
+    p->add_backlog_to_sprint();
+  } else {
+    cout << "Invalid option." << endl;
+  }
+}
+
+void view_backlog() {
+  int num,cc,cthree;
+  vector<Issue*> backlog = p->getToDo();
+  while (true) {
+    cout << "------------------------------------" << endl;
+    print_issues(backlog);
+    cout << "Select issue: ";
+    cin>>cc;
+    num=cc--;
+    backlog[num]->print();
+    cout << "1. Return to backlog." << endl;
+    cout << "2. Return to menu." << endl;
+    cin >> cthree;
+    if (cthree == 2) {
+      return;
+    }
+  }
+}
+
+// View/update my assigned issues script
+void view_my_assigned_issues() {
+  int int_choice,cc;
+  vector<Issue*> all_issues = p->getAssignedIssues(current_user);
+  if (all_issues.empty()) {
+    cout << "No assigned issues." << endl;
+    return;
+  } else {
+    print_issues(all_issues);
+    cout << "Select issue to see more info: ";
+    cin >> int_choice;
+    int_choice--;
+    all_issues[int_choice]->print();
+    cout << "1. Modify Issue" << endl;
+    cout << "2. Return" << endl;
+    cin >> cc;
+    if (cc == 2) {
+      save_project(p);
+      return;
+    } else if (cc == 1) {
+      run_modify_issue(all_issues[int_choice]);
+    } else {
+      cout << "Invalid Input." << endl;
+    }
+  }
+}
+
+// print project name
+void print_proj_name() {
+  cout << "Project name: " << p->getName() << endl;
+}
+
+//Prints a sprint in a formatted manner
+void run_print_sprints() {
+  vector<Sprint*> sprints = p->getSprints();
+  int num = 0;
+  if (sprints.size() > 0) {
+    for (int i = 0; i < sprints.size(); i++) {
+      num = i+1;
+      cout << num << ". Sprint " << num << ": ";
+      if (sprints[i]->isComplete()) {
+        cout << "[FINISHED]" << endl;
+      } else {
+        cout << "[IN PROGRESS]" << endl;
+      }
+    }
+  } else {
+    cout << "No sprints are assigned to this project." << endl;
+  }
+}
+
+//Prints sprints
+void view_sprints() {
+  int int_choice;
+  char c;
+  vector<Sprint*> sp = p->getSprints();
+  while (true) {
+    cout << "------------------------------------" << endl;
+    run_print_sprints();
+    cout << "Select Sprint: ";
+    cin>>int_choice;
+    int_choice--;
+    sp[int_choice]->print();
+    cout << "1. Select Another Sprint" << endl;
+    cout << "2. Return" << endl;
+    cin >> c;
+    if (c == '2') {
+      return;
+    }
+  }
+}
+
+// view/update sprints
+void view_update_sprints() {
+  char choice,c2;
+  int int_choice;
+  vector<Sprint*> spv = p->getSprints();
+  Sprint* sp; 
+  while (true) {
+    cout << "------------------------------------" << endl;
+    if (spv.size() == 0) {
+      cout << "No sprints assigned to this project." << endl;
+      return;
+    } else {
+      run_print_sprints();
+    }
+    cout << "Select Sprint: ";
+    cin>>int_choice;
+    int_choice--;
+    sp = spv[int_choice];
+    sp->print();
+    cout << "1. Modify sprint" << endl;
+    cout << "2. Return" << endl;
+    cin >> choice;
+    if (choice == '1') {
+      cout << "-----------------------" << endl;
+      cout << "1. Modify Issues" << endl;
+      cout << "2. Modify Length" << endl;
+      cout << "3. Modify Current Week" << endl;
+      cout << "4. Modify Status" << endl;
+      cout << "5. Return" << endl;
+      cin >> c2;
+      switch (c2) {
+        case '1': {
+          vector<Issue*> iss = sp->getIssues();
+          print_issues(iss);
+          cout << "Select an issue: ";
+          cin >> int_choice;
+          int_choice--;
+          run_modify_issue(iss[int_choice]);
+        } case '2': {
+          cout << "Changing sprint length to... ";
+          cin >> int_choice;
+          cout << endl;
+          sp->setWeeks(int_choice);
+        } case '3': {
+          cout << "Changing current week to... ";
+          cin >> int_choice;
+          cout << endl;
+          sp->setCurrentWeek(int_choice);
+        } case '4': {
+          cout << "Changing status to...[1. COMPLETE/2. IN PROGRESS] ";
+          cin >> int_choice;
+          if (int_choice == 1) {
+            sp->setCompletion(true);
+          } else if (int_choice == 2) {
+            sp->setCompletion(false);
+          } else {
+            cout << "Invalid input." << endl;
+          }
+        } case '5': {
+          return;
+        } default: {
+          cout << "\"" << choice << "\"" << " is an invalid option. Try again." << endl;
+          break;
+        }
+      } 
+      cin >> c2;
+    } else if (choice =='2') {
+      return;
+    } else {
+      cout << "Invalid option." << endl;
+    }
+  }
+}
+
+
+// Simulate 60 seconds -> 1 week, increment week of current project
+void sprint_mode() {
+  int timer = 0;
+  struct timespec tim = {
+    0,
+    1000000
+  }; // Each execution of while(1) is approximately 1mS
+  struct timespec tim_ret;
+
+  while (1) {
+    if (!p->current_sprint_exists()) {
+      cout << "There are currently no sprints assigned to this project." << endl;
+      return;
+    }
+    timer++;
+    if (timer % 5000 == 0) {
+      bool quit = false;
+      while (!quit) {
+        vector<Issue*> sprint_issues;
+        if (p->getRole(current_user) == Role::LEAD) {
+          sprint_issues = p->getAllUnfinishedIssuesInCurrentSprint();
+        } else {
+          sprint_issues = p->getUnfinishedAssignedIssuesInCurrentSprint(current_user);
+        }
+        int num = sprint_issues.size()+1;
+        print_issues(sprint_issues);
+        int option;
+        cout << num << ". " << "No issues completed - continue sprint" << endl;
+        cout << "SPRINT PAUSED!"; 
+        while (true) {
+          cout << " Mark which issue complete? Enter a number: " << endl;
+          cin >> option;
+          if (option < 1 || option > sprint_issues.size()+1) {
+            cout << "Invalid option. Please enter a valid option: " << endl;
+            break;
+          } else if (option == num) {
+            quit = true;
+            break;
+          } else {
+            sprint_issues[option-1]->setCompletion(true);
+            cout << "Issue ID " << sprint_issues[option-1]->getID() << " marked as complete." << endl;
+            int opt;
+            cout << "Any other issues completed? (1-yes - select again, 2-no - continue with sprint): " << endl;
+            cin >> opt;
+            if (opt == 1) {
+              continue;
+            } else {
+              quit = true;
+              break;
+            }
+          }
+        }
+      }
+      cout << "Continuing sprint..." << endl;
+    }
+    if (timer == 10000) {
+      cout << "Week passed." << endl;
+      p->step_one_week();
+      return;
+    }
+    nanosleep(&tim, &tim_ret);
+  }
 }
 
 // Open project as leader script
 void run_open_as_leader() {
-  cout << "1. View/update collaborators..." << endl;
-  cout << "2. View/update backlog..." << endl;
-  cout << "3. View/update sprints..." << endl;
-  cout << "4. View/update project info..." << endl;
-  cout << "5. Delete project..." << endl;
-}
-
-// print project name and collaborators
-void print_proj_info() {
-  cout << "Project name: " << p->getName() << endl;
-  cout << "Collaborators: " << endl;
-  print_collaborators();
+  bool quit = false;
+  while (!quit) {
+    cout << "------------------------------------" << endl;
+    cout << "1. View/update collaborators..." << endl;
+    cout << "2. View/update backlog..." << endl;
+    cout << "3. View/update sprints..." << endl;
+    cout << "4. View/update project name..." << endl;
+    cout << "5. View/update my assigned issues..." << endl;
+    cout << "6. Begin Sprints!" << endl;
+    cout << "7. Delete project..." << endl;
+    cout << "Enter an option: " << endl;
+    char option;
+    cin >> option;
+    switch (option) {
+      case '1': {
+        view_update_collaborators();
+        break;
+      } case '2': {
+        view_update_backlog();
+        break;
+      } case '3': {
+        view_update_sprints();
+        break;
+      } case '4': {
+        print_proj_name();
+        cout << "Update project name? (y/n): ";
+        char option2;
+        cin >> option2;
+        if (option2 == 'y' || option2 == 'Y') {
+          string newname;
+          cout << "Enter new name: ";
+          cin >> newname;
+          p->setName(newname);
+        }
+        break;
+      } case '5': {
+        view_my_assigned_issues();
+        break;
+      } case '6': {
+        sprint_mode();
+        break;
+      } case '7': {
+        cout << "Projects cannot currently be deleted." << endl;
+        return;
+        break;
+      }
+    }
+  }
+  
 }
 
 // Open project as member
 void run_open_as_member() {
   bool quit = false;
-  int issc,cc;
-  Issue* ci; // current_issue
-  vector<Issue*> backlog = p->getToDo();
+  int int_choice,cc,cthree;
   while (!quit) {
     char choice;
+    cout << "-----------------------------" << endl;
     cout << "1. View collaborators..." << endl;
-    cout << "2. View backlog..." << endl;
-    cout << "3. View sprints..." << endl;
-    cout << "4. View project info..." << endl;
-    cout << "5. View my assigned issues..." << endl;
+    cout << "2. View sprints..." << endl;
+    cout << "3. View project name..." << endl;
+    cout << "4. View/update my assigned issues..." << endl;
+    cout << "5. Begin Sprints!" << endl;
+    cout << "Q. Quit" << endl;
     cin >> choice;
     switch (choice) {
       case '1': {
         print_collaborators();
         break;
       } case '2': {
-        print_issues(backlog);
-        cout << "Select Issue: ";
-        cin >> issc;
-        issc--;
-        backlog[issc]->print();
-        cout << "1. Modify Issue" << endl;
-        cout << "2. Return" << endl;
-        cin >> cc;
-        if (cc == 1)
-        run_modify_issue(backlog[issc]);
-        else
+        view_sprints();
         break;
       } case '3': {
+        print_proj_name();
         break;
       } case '4': {
+        view_my_assigned_issues();
         break;
       } case '5': {
-        break;
+        
+      } case 'Q': {
+        exit(0);
       } default: {
         cout << "\"" << choice << "\"" << " is an invalid option. Try again." << endl;
         break;
@@ -490,21 +746,26 @@ void run_open_project() {
   while (!quit) {
     cout << "1. Open project..." << endl; //show existing projects associated with the user
     cout << "2. Create project..." << endl; //create a new project. prompt the user for information and automatically set them as the project lead
+    cout << "Q. Quit..." << endl;
     cin >> choice;
     switch (choice) {
       case '1' : {
-        cout << "Projects: \n";
         map<User*, Role> roles = loaded_project->getUsers();
         if (roles.count(current_user) == 1) {
-          cout << 1 << ". " << loaded_project->getName() << " [" << role_to_str(roles[current_user]) << "]" << endl;
+          cout << "Opening project...\n";
+          p = loaded_project;
+          p->setCurrentUser(current_user);
         } else {
           cout << "You have no projects. Create one or log into an account with one." << endl;
           break;
         }
         if (roles[current_user] == Role::LEAD) {
           run_open_as_leader();
+          return;
         } else {
           run_open_as_member();
+          quit = true;
+          return;
         }
         break;
       } case '2' : { 
@@ -513,7 +774,7 @@ void run_open_project() {
         Project * temp = new Project(p_name, current_user);
         p = temp;
         cout << "Project " << "\"" << p_name << "\" successfully created." << endl;
-        save_project();
+        save_project(p);
         quit = true;
         break;
       } case 'Q' : { 
@@ -522,25 +783,6 @@ void run_open_project() {
         cout << "\"" << choice << "\"" << " is an invalid option. Try again." << endl;
         break;
       }
-    }
-  }
-}
-
-// Simulate 60 seconds -> 1 week, increment week of current project
-void simulate_time() {
-  int timer = 0;
-  struct timespec tim = {
-    0,
-    1000000
-  }; // Each execution of while(1) is approximately 1mS
-  struct timespec tim_ret;
-
-  while (1) {
-    timer++;
-    if (timer == 60000) {
-      cout << "Week passed." << endl;
-      p->step_one_week();
-      timer = 0;
     }
   }
 }
@@ -555,7 +797,7 @@ int main() {
   for (auto u : users) {
     delete u;
   }
-  for (auto p : projects) {
-    delete p;
-  }
+  delete p;
+  return 0;
+
 }

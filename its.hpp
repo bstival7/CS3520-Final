@@ -21,6 +21,22 @@ enum class IssueType {
   DOC = 5
 };
 
+string type_to_str(IssueType t) {
+  if (t == IssueType::US) {
+    return "User Story";
+  } else if (t == IssueType::TASK) {
+    return "Task";
+  } else if (t == IssueType::BUILD) {
+    return "Build";
+  } else if (t == IssueType::TEST) {
+    return "Test";
+  } else if (t == IssueType::DEBUG) {
+    return "Debug";
+  } else {
+    return "Documentation";
+  }
+}
+
 // print IssueType number
 ostream& operator<< (ostream& os, const IssueType& it)
 {
@@ -196,14 +212,15 @@ class Issue {
       
       //print info
       cout << "ISSUE " << id << endl;
-      cout << "type: " << type << endl;
+      cout << "type: " << type_to_str(type) << endl;
       cout << "Date Added: " << date_added << endl;
-      cout << "Est. Days to Fix: " << work_days << endl;
+      cout << "Est. Days to Fix: " << time_to_complete << endl;
       cout << "Priority: " << prio << endl;
       cout << "Description: " << desc << endl;
       cout << "Complete? " << comp << endl;
       cout << "Assigned By " << assignee->getUsername();
       cout << " To " << reporter->getUsername();
+      cout << endl;
     }
     
     // compare by priority
@@ -271,10 +288,19 @@ class Sprint {
       weeks = w;
     }
 
+    void setCurrentWeek(int i) {
+      current_week = i;
+      if (current_week >= weeks) {
+        finished = true;
+      } else {
+        finished = false;
+      }
+    }
+
     // Increments the current week the sprint is on; updates finished field if the current week exceeds the number of weeks allotted
     void increment_week() {
       current_week++;
-      if (current_week > weeks) {
+      if (current_week == weeks) {
         finished = true;
       }
     }
@@ -282,6 +308,11 @@ class Sprint {
       finished = b;
     }
     void addIssue(Issue* i) {
+      for (Issue * is : issues) {
+        if (i->getID() == is->getID()) {
+          return;
+        }
+      }
       issues.push_back(i);
       sort(issues.begin(), issues.end(), greater<>());
     }
@@ -291,8 +322,22 @@ class Sprint {
         issues.erase(pos);
       }
     }
-    void print();
-    //Overload >> to print sprint
+    void print() {
+      cout << "Sprint" << endl;
+      cout << "Weeks: " << weeks << endl;
+      cout << "Current Week: " << current_week << endl;
+      cout << "Finished? " << finished << endl;
+      cout << "Issues: ";
+      for (auto x : issues) {
+        cout << "[Issue " << x->getID() << ", ";
+        if (x->isComplete()) {
+          cout << "Resolved], ";
+        } else {
+          cout << "Unresolved], ";
+        }
+      }
+      cout << endl;
+    }
 };
 
 // Represent a project 
@@ -334,13 +379,19 @@ class Project {
           num_leads++;
         }  
       }
+      for (Sprint * sp : sprints) {
+        if (!sp->isComplete()) {
+          current_sprint = sp;
+          break;
+        }
+      }
     }
     ~Project() {
       for (Issue* i : to_do) {
         delete i;
       }
       for (Issue* i : work_done) {
-        
+        delete i;
       }
       for (Sprint* s : sprints) {
         delete s;
@@ -354,19 +405,19 @@ class Project {
     const User* getCurrentUser() {
       return current_user;
     }
-    const vector<Issue*>& getToDo() {
+    const vector<Issue*> getToDo() {
       return to_do;
     }
-    const vector<Issue*>& getWorkDone() {
+    const vector<Issue*> getWorkDone() {
       return work_done;
     }
-    const vector<Issue*>& getAllIssues() {
+    const vector<Issue*> getAllIssues() {
       return all_issues;
     }
     const map<User*, Role> getUsers() {
       return roles;
     }
-    const vector<Sprint*>& getInProgress() {
+    const vector<Sprint*> getSprints() {
       return sprints;
     }
     const int getNID() {
@@ -384,6 +435,10 @@ class Project {
 
     // (L) Remove collaborator, return whether remove was successful
     bool remove_collaborator(User* u) {
+      if (current_user == u) {
+        cout << "Cennot remove yourself." << endl;
+        return false;
+      }
       //Only allows leads to remove users
       if (roles[current_user] != Role::LEAD) {
         cout << "Insufficient Permissions." << endl;
@@ -466,25 +521,75 @@ class Project {
         }
       }
       
+      // erase from all issues
+      for (int c = 0; c < all_issues.size(); c++) {
+        if (all_issues.at(c)->getID() == i->getID()) {
+          all_issues.erase(all_issues.begin()+c);
+          break;
+        }
+      }
+
       return erased;
+    }
+
+    // Does a current sprint exist?
+    bool current_sprint_exists() {
+      return current_sprint != NULL;
     }
 
     // Add all backlog issues to current sprint
     bool add_backlog_to_sprint() {
       if(current_sprint == NULL) {
+        cout << "No current sprint." << endl;
         return false;
       } else {
         for (Issue* i : to_do) {
           i->setDescription(i->getDescription() + "// Old id: " + to_string(i->getID()));
           i->setID(next_issue_id);
           next_issue_id++;
+          current_sprint->addIssue(i);
         }
-        vector<Issue*> is(current_sprint->getIssues());
-        is.insert(is.end(), to_do.begin(), to_do.end());
-        current_sprint->setIssues(is);
         to_do.clear();
+        cout << "Backlog added to current sprint." << endl;
         return true;
       }
+    }
+
+    // return the list of issues assigned to this user
+    vector<Issue*> getAssignedIssues(User * u) {
+      vector<Issue*> v;
+      if (roles[u] == Role::LEAD) {
+        return all_issues;
+      } else {
+        for (Issue* x : all_issues) {
+          if (x->getReporter() == u) {
+            v.push_back(x);
+          }
+        }
+      return v; 
+      }
+    }
+
+    // return the list of unfinished issues  in the current sprint assigned to this user
+    vector<Issue*> getUnfinishedAssignedIssuesInCurrentSprint(User * u) {
+      vector<Issue*> v;
+      for (Issue* x : current_sprint->getIssues()) {
+        if (x->getReporter() == u && !x->isComplete()) {
+          v.push_back(x);
+        }
+      } 
+      return v;
+    }
+
+    // return the list of unfinished issues in the current sprint
+    vector<Issue*> getAllUnfinishedIssuesInCurrentSprint() {
+      vector<Issue*> v;
+      for (Issue* x : current_sprint->getIssues()) {
+        if (!x->isComplete()) {
+          v.push_back(x);
+        }
+      } 
+      return v;
     }
 
     // (L) Add sprint, update current sprint if necessary
@@ -552,7 +657,7 @@ class Project {
         return false;
       } else if (role == Role::MEMBER && roles[u] == Role::LEAD && num_leads == 1) {
         // if we are trying to demote the only leader
-        cout << "Cannot demote the only project leader.";
+        cout << "Cannot demote the only project leader." << endl;
         return false;
       } else {
         if (role == Role::MEMBER && roles[u] == Role::LEAD) {
