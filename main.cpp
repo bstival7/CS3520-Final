@@ -9,6 +9,7 @@
 #include <sstream>
 #include "its.hpp"
 #include "proj_io.hpp"
+#include <stdio.h>
 #include <cstdlib>
 #include <ctime>
 #include <thread>
@@ -17,6 +18,7 @@ using namespace std;
 
 User * current_user; // current user
 Project * p; // current project
+bool stop = false;
 
 // print list of issues
 void print_issues(vector<Issue*> iss) {
@@ -79,7 +81,8 @@ void run_login() {
         }
         break;
       } case 'Q' : {
-        exit(0);
+        stop = true;
+        return;
       } default: {
         cout << "\"" << choice << "\"" << " is an invalid option. Try again." << endl;
         break;
@@ -167,6 +170,7 @@ void view_update_collaborators() {
       p->remove_collaborator(u);
       break;
     } else if (option == i) {
+      save_project(p);
       return;
     } else {
       cout << "Incorrect output." << endl;
@@ -301,13 +305,15 @@ void run_modify_issue(Issue * i) {
       break;
     }
     case 'Q' : {
+      save_project(p);
       return;
     }
   }
 }
 
 // Script to add an issue
-void run_add_issue() {
+// Assigns to current user automatically if the given boolean is true
+void run_add_issue(bool self_assign) {
   int typenum;
   IssueType type;
   string da;
@@ -353,25 +359,30 @@ void run_add_issue() {
   cin.ignore(numeric_limits<std::streamsize>::max(), '\n'); 
   cout << "Enter description: ";
   getline(cin, desc);
-  while (true) {
-    int usernum;
-    cout << "Assign to whom? " << endl;
-    vector<User*> valid_users;
-    for (auto x : p->getUsers()) {
-      valid_users.push_back(x.first);
+  if (!self_assign) {
+    while (true) {
+      int usernum;
+      cout << "Assign to whom? " << endl;
+      vector<User*> valid_users;
+      for (auto x : p->getUsers()) {
+        valid_users.push_back(x.first);
+      }
+      for (int i = 1; i <= valid_users.size(); i++) {
+        cout << i << ". " + valid_users.at(i-1)->getUsername() << endl;
+      }
+      cout << "Enter number: ";
+      cin >> usernum;
+      if (usernum < 1 || usernum > valid_users.size()) {
+        cout << "Invalid option. Try again." << endl;
+      } else {
+        reporter = valid_users.at(usernum-1);
+        break;
+      }
     }
-    for (int i = 1; i <= valid_users.size(); i++) {
-      cout << i << ". " + valid_users.at(i-1)->getUsername() << endl;
-    }
-    cout << "Enter number: ";
-    cin >> usernum;
-    if (usernum < 1 || usernum > valid_users.size()) {
-      cout << "Invalid option. Try again." << endl;
-    } else {
-      reporter = valid_users.at(usernum-1);
-      break;
-    }
+  } else {
+    reporter = current_user;
   }
+  
   //IssueType t, string date, int work_days, int prio, string description, User * assignedTo, User * assignedBy
   Issue* newissue = new Issue(type, da, ttc, priority, desc, reporter, current_user);
   p->add_issue(newissue);
@@ -400,6 +411,7 @@ void view_update_backlog() {
       if (int_choice == 1) {
         run_modify_issue(backlog[num]);
       } else if (int_choice == 2) {
+        save_project(p);
         return;
       } else {
         cout << "Invalid option." << endl;
@@ -408,7 +420,7 @@ void view_update_backlog() {
       cout << "No issues currently in backlog." << endl;
     }
   } else if (cthree == 2) {
-    run_add_issue();
+    run_add_issue(false);
   } else if (cthree == 3) {
     p->add_backlog_to_sprint();
   } else {
@@ -416,6 +428,7 @@ void view_update_backlog() {
   }
 }
 
+// Print the backlog of issues
 void view_backlog() {
   int num,cc,cthree;
   vector<Issue*> backlog = p->getToDo();
@@ -468,7 +481,7 @@ void print_proj_name() {
 }
 
 //Prints a sprint in a formatted manner
-void run_print_sprints() {
+bool run_print_sprints() {
   vector<Sprint*> sprints = p->getSprints();
   int num = 0;
   if (sprints.size() > 0) {
@@ -481,8 +494,10 @@ void run_print_sprints() {
         cout << "[IN PROGRESS]" << endl;
       }
     }
+    return true;
   } else {
     cout << "No sprints are assigned to this project." << endl;
+    return false;
   }
 }
 
@@ -493,7 +508,9 @@ void view_sprints() {
   vector<Sprint*> sp = p->getSprints();
   while (true) {
     cout << "------------------------------------" << endl;
-    run_print_sprints();
+    if (!run_print_sprints()) {
+      return;
+    }
     cout << "Select Sprint: ";
     cin>>int_choice;
     int_choice--;
@@ -502,18 +519,19 @@ void view_sprints() {
     cout << "2. Return" << endl;
     cin >> c;
     if (c == '2') {
+      save_project(p);
       return;
     }
   }
 }
 
-// view/update sprints
-void view_update_sprints() {
-  char choice,c2;
-  int int_choice;
-  vector<Sprint*> spv = p->getSprints();
-  Sprint* sp; 
+//modifies an existing sprint
+void modify_sprints() {
   while (true) {
+    char choice,c2;
+    int int_choice;
+    vector<Sprint*> spv = p->getSprints();
+    Sprint* sp; 
     cout << "------------------------------------" << endl;
     if (spv.size() == 0) {
       cout << "No sprints assigned to this project." << endl;
@@ -540,21 +558,29 @@ void view_update_sprints() {
       switch (c2) {
         case '1': {
           vector<Issue*> iss = sp->getIssues();
-          print_issues(iss);
-          cout << "Select an issue: ";
-          cin >> int_choice;
-          int_choice--;
-          run_modify_issue(iss[int_choice]);
+          if (!iss.empty()) {
+            print_issues(iss);
+            cout << "Select an issue: ";
+            cin >> int_choice;
+            int_choice--;
+            run_modify_issue(iss[int_choice]);
+            break;
+          } else {
+            cout << "No issues to modify!" << endl;
+            return;
+          }
         } case '2': {
           cout << "Changing sprint length to... ";
           cin >> int_choice;
           cout << endl;
           sp->setWeeks(int_choice);
+          break;
         } case '3': {
           cout << "Changing current week to... ";
           cin >> int_choice;
           cout << endl;
           sp->setCurrentWeek(int_choice);
+          break;
         } case '4': {
           cout << "Changing status to...[1. COMPLETE/2. IN PROGRESS] ";
           cin >> int_choice;
@@ -565,6 +591,7 @@ void view_update_sprints() {
           } else {
             cout << "Invalid input." << endl;
           }
+          break;
         } case '5': {
           return;
         } default: {
@@ -572,13 +599,51 @@ void view_update_sprints() {
           break;
         }
       } 
-      cin >> c2;
     } else if (choice =='2') {
+      save_project(p);
       return;
     } else {
       cout << "Invalid option." << endl;
     }
   }
+}
+//creates a new sprint and adds it to the project
+void add_sprint() {
+  int choice;
+  string ch;
+  Sprint* spr = new Sprint();
+  cout << "------------------------------------------" << endl;
+  cout << "How long will this sprint last in weeks? ";
+  cin>>choice;
+  spr->setWeeks(choice);
+  p->add_sprint(spr);
+  cout << "New sprint created. Assign issues to it through the backlog." << endl;
+}
+// view/update sprints
+void view_update_sprints() {
+  int choice;
+  while (true) {
+    cout << "1. Modify Sprints" << endl;
+    cout << "2. Add New Sprint" << endl;
+    cout << "3. Return" << endl;
+    cin >> choice;
+    switch (choice) {
+      case 1 : {
+        modify_sprints();
+        break;
+      } case 2 : {
+        add_sprint();
+        break;
+      } case 3 : {
+        save_project(p);
+        return;
+      } default: {
+        cout << "Invalid selection." << endl;
+        break;
+      }
+    }
+  }
+  
 }
 
 
@@ -658,6 +723,7 @@ void run_open_as_leader() {
     cout << "5. View/update my assigned issues..." << endl;
     cout << "6. Begin Sprints!" << endl;
     cout << "7. Delete project..." << endl;
+    cout << "Q. Quit" << endl;
     cout << "Enter an option: " << endl;
     char option;
     cin >> option;
@@ -690,13 +756,30 @@ void run_open_as_leader() {
         sprint_mode();
         break;
       } case '7': {
-        cout << "Projects cannot currently be deleted." << endl;
+        string input;
+        cout << "Are you sure you want to delete the project? This cannot be undone: type \"CONTINUE\" (case sensitive) to continue, \"Q\" to go back" << endl;
+        cin >> input;
+        if (input == "CONTINUE") {
+          remove("data/proj.txt");
+          p = NULL;
+          loaded_project = NULL;
+          cout << "Project deleted. Going back to login menu." << endl;
+          return;
+        } else if (input == "Q") {
+          break;
+        } else {
+          cout << "Input does not match \"CONTINUE\"." << endl;
+        }
+        break;
+      } case 'Q': {
+        stop = true;
         return;
+      } default: {
+        cout << "\"" << option << "\"" << " is an invalid option. Try again." << endl;
         break;
       }
     }
   }
-  
 }
 
 // Open project as member
@@ -710,7 +793,8 @@ void run_open_as_member() {
     cout << "2. View sprints..." << endl;
     cout << "3. View project name..." << endl;
     cout << "4. View/update my assigned issues..." << endl;
-    cout << "5. Begin Sprints!" << endl;
+    cout << "5. Add issue..." << endl;
+    cout << "6. Begin Sprints!" << endl;
     cout << "Q. Quit" << endl;
     cin >> choice;
     switch (choice) {
@@ -727,9 +811,14 @@ void run_open_as_member() {
         view_my_assigned_issues();
         break;
       } case '5': {
-        
+        run_add_issue(true);
+        break;
+      } case '6': {
+        sprint_mode();
+        break;
       } case 'Q': {
-        exit(0);
+        stop = true;
+        return;
       } default: {
         cout << "\"" << choice << "\"" << " is an invalid option. Try again." << endl;
         break;
@@ -750,6 +839,10 @@ void run_open_project() {
     cin >> choice;
     switch (choice) {
       case '1' : {
+        if (loaded_project == NULL) {
+          cout << "No project exists. Create a new one." << endl;
+          break;
+        }
         map<User*, Role> roles = loaded_project->getUsers();
         if (roles.count(current_user) == 1) {
           cout << "Opening project...\n";
@@ -772,13 +865,15 @@ void run_open_project() {
         cout << "Enter a name for the project (one word): ";
         cin >> p_name;
         Project * temp = new Project(p_name, current_user);
+        loaded_project = temp;
         p = temp;
         cout << "Project " << "\"" << p_name << "\" successfully created." << endl;
         save_project(p);
         quit = true;
         break;
       } case 'Q' : { 
-        exit(0);
+        stop = true;
+        return;
       } default: {
         cout << "\"" << choice << "\"" << " is an invalid option. Try again." << endl;
         break;
@@ -790,8 +885,14 @@ void run_open_project() {
 // Main method
 int main() {
   import_data();
-  run_login();
-  run_open_project();
+  
+  while (!stop) {
+    run_login();
+    if (stop) {
+      break;
+    }
+    run_open_project();
+  }
   
   // Free memory
   for (auto u : users) {
@@ -799,5 +900,4 @@ int main() {
   }
   delete p;
   return 0;
-
 }

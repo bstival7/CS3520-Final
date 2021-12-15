@@ -211,6 +211,7 @@ class Issue {
       comp = "No";
       
       //print info
+      cout << "-----------------------------" << endl;
       cout << "ISSUE " << id << endl;
       cout << "type: " << type_to_str(type) << endl;
       cout << "Date Added: " << date_added << endl;
@@ -221,6 +222,7 @@ class Issue {
       cout << "Assigned By " << assignee->getUsername();
       cout << " To " << reporter->getUsername();
       cout << endl;
+      cout << "-----------------------------" << endl;
     }
     
     // compare by priority
@@ -243,7 +245,10 @@ class Sprint {
     bool finished; // is the sprint complete?
   public:
     //Constructor & Destructor
-    Sprint() {}
+    Sprint() {
+      current_week=0;
+      finished=false;
+    }
     
     // Constructor that creates new sprint for use in project
     Sprint(vector<Issue*> i, int w) {
@@ -323,6 +328,7 @@ class Sprint {
       }
     }
     void print() {
+      cout << "-----------------------------" << endl;
       cout << "Sprint" << endl;
       cout << "Weeks: " << weeks << endl;
       cout << "Current Week: " << current_week << endl;
@@ -436,7 +442,7 @@ class Project {
     // (L) Remove collaborator, return whether remove was successful
     bool remove_collaborator(User* u) {
       if (current_user == u) {
-        cout << "Cennot remove yourself." << endl;
+        cout << "Cannot remove yourself." << endl;
         return false;
       }
       //Only allows leads to remove users

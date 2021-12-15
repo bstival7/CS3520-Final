@@ -110,6 +110,7 @@ void load_project() {
     issues[id] = is;
   }
 
+
   //get sprints
   while (true) {
     getline(input, line);
@@ -120,7 +121,7 @@ void load_project() {
     int weeks;
     int current_week;
     bool finished;
-
+    
     //list of issues associated with a sprint
     while (true) {
       getline(input, line);
@@ -128,7 +129,11 @@ void load_project() {
         break;
       }
       int id = stoi(line);
-      issue_list.push_back(issues[id]);
+      if (id == -1) {
+        break;
+      } else {
+        issue_list.push_back(issues[id]);
+      }
     }
     getline(input, line);
     weeks = stoi(line);
@@ -232,8 +237,12 @@ void save_project(Project * p) {
   }
   ss << "S%" << endl;
   for (Sprint * s : sprints) {
-    for (Issue* i : s->getIssues()) {
-      ss << i->getID() << endl;
+    if (s->getIssues().empty()) {
+      ss << -1 << endl;
+    } else {
+      for (Issue* i : s->getIssues()) {
+        ss << i->getID() << endl;
+      }
     }
     ss << "W%" << endl;
     ss << s->getWeeks() << endl;
@@ -263,7 +272,12 @@ void import_data() {
     users.push_back(new User(user));
   }
   u.close();
-  load_project();
+  ifstream fileexists("data/proj.txt"); 
+  if (fileexists.good()) {
+    load_project();
+  } else {
+    loaded_project = NULL;
+  } 
 }
 
 
